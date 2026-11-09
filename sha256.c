@@ -1,3 +1,10 @@
+/*
+ * sha256.c
+ * ==========
+ * Standard, public-domain-style SHA-256 (FIPS 180-4) implementation,
+ * written for embedded use - fixed-size buffers only, no heap
+ * allocation, no libc dependency beyond string.h's memcpy/memset.
+ */
 
 #include "sha256.h"
 #include <string.h>
@@ -80,6 +87,7 @@ void sha256_final(SHA256_CTX *ctx, uint8_t hash[SHA256_DIGEST_SIZE])
 {
     uint32_t i = ctx->datalen;
 
+    /* Padding */
     if (ctx->datalen < 56U)
     {
         ctx->data[i++] = 0x80U;

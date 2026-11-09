@@ -1,3 +1,11 @@
+/*
+ * lcd_i2c.c
+ * ===========
+ * Standard PCF8574 bit mapping (the near-universal convention for
+ * these backpacks):
+ *   P0=RS  P1=RW(tied low, unused)  P2=E  P3=Backlight
+ *   P4-P7 = D4-D7 (4-bit mode - each byte sent as two nibbles)
+ */
 
 #include "lcd_i2c.h"
 
@@ -11,6 +19,10 @@ static void i2c_write_raw(I2C_HandleTypeDef *hi2c, uint8_t data)
     HAL_I2C_Master_Transmit(hi2c, LCD_I2C_ADDR, &data, 1, 100);
 }
 
+/* Each I2C transaction's own overhead comfortably exceeds the
+   HD44780's minimum ~450ns enable-pulse width, so no separate
+   microsecond delay is needed between the enable-high and
+   enable-low writes below. */
 static void write_nibble(I2C_HandleTypeDef *hi2c, uint8_t nibble, uint8_t rs)
 {
     uint8_t data = (uint8_t)((nibble & 0xF0U) | LCD_BACKLIGHT | rs);
@@ -29,27 +41,28 @@ static void send_data(I2C_HandleTypeDef *hi2c, uint8_t data) { send_byte(hi2c, d
 
 void LCD_Init(I2C_HandleTypeDef *hi2c)
 {
-    HAL_Delay(50);
+    HAL_Delay(50);  /* wait for LCD power-on stabilization */
 
+    /* HD44780 standard reset-to-4-bit-mode sequence */
     write_nibble(hi2c, 0x30U, LCD_RS_CMD);
     HAL_Delay(5);
     write_nibble(hi2c, 0x30U, LCD_RS_CMD);
     HAL_Delay(1);
     write_nibble(hi2c, 0x30U, LCD_RS_CMD);
     HAL_Delay(1);
-    write_nibble(hi2c, 0x20U, LCD_RS_CMD);
+    write_nibble(hi2c, 0x20U, LCD_RS_CMD);  /* switch to 4-bit mode */
     HAL_Delay(1);
 
-    send_cmd(hi2c, 0x28U);
-    send_cmd(hi2c, 0x0CU);
-    send_cmd(hi2c, 0x06U);
+    send_cmd(hi2c, 0x28U);  /* function set: 4-bit, 2-line, 5x8 font */
+    send_cmd(hi2c, 0x0CU);  /* display on, cursor off, blink off */
+    send_cmd(hi2c, 0x06U);  /* entry mode: increment, no shift */
     LCD_Clear(hi2c);
 }
 
 void LCD_Clear(I2C_HandleTypeDef *hi2c)
 {
     send_cmd(hi2c, 0x01U);
-    HAL_Delay(2);
+    HAL_Delay(2);   /* clear/home commands need extra processing time */
 }
 
 void LCD_SetCursor(I2C_HandleTypeDef *hi2c, uint8_t col, uint8_t row)

@@ -1,3 +1,10 @@
+/*
+ * hmac_sha256.c
+ * ===============
+ * Standard HMAC construction (RFC 2104):
+ *   HMAC(K, m) = H( (K' XOR opad) || H( (K' XOR ipad) || m ) )
+ * where K' is the key, zero-padded/hashed down to the block size.
+ */
 
 #include "hmac_sha256.h"
 #include "sha256.h"
@@ -17,7 +24,7 @@ void hmac_sha256(const uint8_t *key, size_t key_len,
 
     if (key_len > SHA256_BLOCK_SIZE)
     {
-
+        /* Keys longer than one block are themselves hashed down first */
         sha256(key, key_len, key_block);
     }
     else
@@ -31,11 +38,13 @@ void hmac_sha256(const uint8_t *key, size_t key_len,
         k_opad[i] = key_block[i] ^ 0x5cU;
     }
 
+    /* Inner hash: H(K XOR ipad || message) */
     sha256_init(&ctx);
     sha256_update(&ctx, k_ipad, SHA256_BLOCK_SIZE);
     sha256_update(&ctx, data, data_len);
     sha256_final(&ctx, inner_hash);
 
+    /* Outer hash: H(K XOR opad || inner_hash) */
     sha256_init(&ctx);
     sha256_update(&ctx, k_opad, SHA256_BLOCK_SIZE);
     sha256_update(&ctx, inner_hash, SHA256_DIGEST_SIZE);
@@ -49,5 +58,5 @@ int hmac_sha256_verify(const uint8_t a[HMAC_SHA256_SIZE], const uint8_t b[HMAC_S
     {
         diff |= (uint8_t)(a[i] ^ b[i]);
     }
-    return (diff == 0U) ? 1 : 0;
+    return (diff == 0U) ? 1 : 0;   /* 1 = match, 0 = mismatch */
 }

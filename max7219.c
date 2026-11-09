@@ -1,3 +1,10 @@
+/*
+ * max7219.c
+ * ===========
+ * CS is driven manually (SPI2's hardware NSS is not used), matching
+ * the same manual-CS pattern already proven for the MCP2515 driver
+ * on SPI1.
+ */
 
 #include "max7219.h"
 
@@ -24,11 +31,11 @@ static void write_register(SPI_HandleTypeDef *hspi, uint8_t reg, uint8_t data)
 void MAX7219_Init(SPI_HandleTypeDef *hspi)
 {
     cs_high();
-    write_register(hspi, REG_DISPLAY_TEST, 0x00U);
-    write_register(hspi, REG_DECODE_MODE, 0x00U);
-    write_register(hspi, REG_SCAN_LIMIT, 0x07U);
-    write_register(hspi, REG_INTENSITY, 0x08U);
-    write_register(hspi, REG_SHUTDOWN, 0x01U);
+    write_register(hspi, REG_DISPLAY_TEST, 0x00U);  /* test mode off */
+    write_register(hspi, REG_DECODE_MODE, 0x00U);   /* no BCD decode - raw LED addressing */
+    write_register(hspi, REG_SCAN_LIMIT, 0x07U);    /* scan all 8 digits/rows */
+    write_register(hspi, REG_INTENSITY, 0x08U);     /* medium brightness */
+    write_register(hspi, REG_SHUTDOWN, 0x01U);      /* leave shutdown mode - normal operation */
     MAX7219_Clear(hspi);
 }
 
@@ -36,7 +43,7 @@ void MAX7219_DisplayPattern(SPI_HandleTypeDef *hspi, const uint8_t rows[8])
 {
     for (uint8_t i = 0U; i < 8U; i++)
     {
-        write_register(hspi, (uint8_t)(i + 1U), rows[i]);
+        write_register(hspi, (uint8_t)(i + 1U), rows[i]);   /* digit registers are 0x01-0x08 */
     }
 }
 

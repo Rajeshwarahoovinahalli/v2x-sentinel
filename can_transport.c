@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include "stm32f4xx_hal.h"
 
+/* Diagnostic output - reuses the same debug UART main.c already
+ * initializes. Declared extern here since main.c owns the handle. */
 extern UART_HandleTypeDef huart2;
 static void trans_dbg(const char *s)
 {
@@ -21,7 +23,7 @@ void CAN_Transport_Send(MCP2515_Handle *h, uint16_t can_id, const uint8_t *data,
 
     if (len <= 7U)
     {
-
+        /* ---- Single Frame: fits entirely in one CAN frame ---- */
         frame.dlc = (uint8_t)(len + 1U);
         frame.data[0] = (uint8_t)(PCI_TYPE_SF | (len & 0x0FU));
         memcpy(&frame.data[1], data, len);
@@ -30,11 +32,11 @@ void CAN_Transport_Send(MCP2515_Handle *h, uint16_t can_id, const uint8_t *data,
     }
     else
     {
-
+        /* ---- First Frame: PCI byte + length-high nibble, then length-low byte ---- */
         frame.dlc = 8U;
         frame.data[0] = (uint8_t)(PCI_TYPE_FF | ((len >> 8) & 0x0FU));
         frame.data[1] = (uint8_t)(len & 0xFFU);
-        memcpy(&frame.data[2], data, 6U);
+        memcpy(&frame.data[2], data, 6U);   /* First Frame carries 6 payload bytes */
         MCP2515_SendFrame(h, &frame);
         trans_dbg("  -> FF sent\r\n");
 
@@ -55,9 +57,10 @@ void CAN_Transport_Send(MCP2515_Handle *h, uint16_t can_id, const uint8_t *data,
 
             sent = (uint16_t)(sent + chunk);
             seq = (uint8_t)((seq + 1U) & 0x0FU);
-            if (seq == 0U) { seq = 1U; }
+            if (seq == 0U) { seq = 1U; }  /* sequence numbers 1-15, skip 0 (0 means SF) */
 
-            HAL_Delay(2);
+            HAL_Delay(2); /* brief pacing so the receiver's polling loop keeps up,
+                              same lesson learned from the UART chunked-transfer work */
         }
         trans_dbg("TRANSPORT_SEND: complete\r\n");
     }
@@ -72,19 +75,19 @@ uint8_t CAN_Transport_ProcessFrame(CAN_Transport_RxState *rx_state, const CAN_Fr
     if (pci_type == PCI_TYPE_SF)
     {
         uint8_t len = (uint8_t)(frame->data[0] & 0x0FU);
-        if (len > (frame->dlc - 1U)) { return 0U; }
+        if (len > (frame->dlc - 1U)) { return 0U; }   /* malformed, ignore */
         if (len > CAN_TRANSPORT_MAX_MSG) { return 0U; }
 
         memcpy(rx_state->buf, &frame->data[1], len);
         rx_state->recv_len = len;
         rx_state->total_len = len;
         rx_state->in_progress = 0U;
-        return 1U;
+        return 1U;   /* complete message, ready immediately */
     }
     else if (pci_type == PCI_TYPE_FF)
     {
         uint16_t len = (uint16_t)(((uint16_t)(frame->data[0] & 0x0FU) << 8) | frame->data[1]);
-        if (len > CAN_TRANSPORT_MAX_MSG) { return 0U; }
+        if (len > CAN_TRANSPORT_MAX_MSG) { return 0U; }   /* too big, refuse */
 
         uint8_t first_chunk = (frame->dlc >= 8U) ? 6U : (uint8_t)(frame->dlc - 2U);
         memcpy(rx_state->buf, &frame->data[2], first_chunk);
@@ -93,16 +96,17 @@ uint8_t CAN_Transport_ProcessFrame(CAN_Transport_RxState *rx_state, const CAN_Fr
         rx_state->recv_len = first_chunk;
         rx_state->expected_seq = 1U;
         rx_state->in_progress = 1U;
-        return 0U;
+        return 0U;   /* not complete yet */
     }
     else if (pci_type == PCI_TYPE_CF)
     {
-        if (rx_state->in_progress == 0U) { return 0U; }
+        if (rx_state->in_progress == 0U) { return 0U; }   /* unexpected CF, ignore */
 
         uint8_t seq = (uint8_t)(frame->data[0] & 0x0FU);
         if (seq != rx_state->expected_seq)
         {
-
+            /* out-of-sequence - abandon this message rather than
+               reassemble corrupted/misordered data */
             rx_state->in_progress = 0U;
             rx_state->recv_len = 0U;
             return 0U;
@@ -126,12 +130,12 @@ uint8_t CAN_Transport_ProcessFrame(CAN_Transport_RxState *rx_state, const CAN_Fr
         if (rx_state->recv_len >= rx_state->total_len)
         {
             rx_state->in_progress = 0U;
-            return 1U;
+            return 1U;   /* message complete */
         }
-        return 0U;
+        return 0U;   /* still waiting for more CFs */
     }
     else
     {
-        return 0U;
+        return 0U;   /* unrecognized PCI type */
     }
 }
